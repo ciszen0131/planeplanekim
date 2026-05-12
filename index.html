@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Plane Plane Kim - 시각화</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="left">택이의 비행기 수</div>
+    <nav class="tabs">
+      <button class="tab">무작위</button>
+      <button class="tab active">뒤에서</button>
+      <button class="tab">열파뱃순</button>
+    </nav>
+    <div class="actions">
+      <button id="start">시작</button>
+      <button id="pause">일시중지</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="stats">
+      <div class="card">
+        <div class="label">전체 시간</div>
+        <div class="value" id="time">0s</div>
+      </div>
+      <div class="card">
+        <div class="label">탑승객 인원</div>
+        <div class="value" id="count">0 / 0명</div>
+        <div class="progress"><div id="progressBar"></div></div>
+      </div>
+      <div class="card">
+        <div class="label">줄이 멈춘 시간</div>
+        <div class="value" id="bottleneck">0</div>
+      </div>
+    </section>
+
+    <section class="seating-area">
+      <aside class="passenger-side" id="passengerSide"></aside>
+
+      <div class="seating-card">
+        <div class="seats" id="seats"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
