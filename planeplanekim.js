@@ -4,6 +4,10 @@ const SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
 const ENTRY_DELAY = 2;
 const BASE_SIT_TIME = 4;
 const TICK_MS = 80;       // 애니메이션 재생 속도 (ms) - 건드리지 말 것
+
+const ENTRY_DELAY = 2;
+const BASE_SIT_TIME = 4;
+const TICK_MS = 80;       // 애니메이션 재생 속도 (ms) - 건드리지 말 것
 const TICK_SECONDS = 1;   // 1틱 = 현실 몇 초 (현실 시간 환산 기준)
 
 // --------------------
