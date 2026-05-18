@@ -1,9 +1,6 @@
 const ROWS = 30;
 const SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-
-const ENTRY_DELAY = 2;
-const BASE_SIT_TIME = 4;
-const TICK_MS = 80;       // 애니메이션 재생 속도 (ms) - 건드리지 말 것
+const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
 const BASE_SIT_TIME = 4;
@@ -87,7 +84,7 @@ function createPassengers(seats) {
 
 // --------------------
 // 병목 집계
-// 이동하려 했지만 앞이 막혀서 못 움직인 횟수
+// 복도별로 이동한 승객이 한 명도 없었던 틱 수 (줄이 멈춘 시간)
 // --------------------
 let bottleneckCount = 0;
 
@@ -102,51 +99,57 @@ function updatePassengers(activePassengers) {
         if (p.state === 'walking') aisleOcc[p.aisle].add(p.currentCol);
     }
 
+    const movedThisTick = { TOP: false, BOT: false };
+
     for (const p of activePassengers) {
 
         // ── 착석 완료 ──
         if (p.state === 'seated') continue;
 
         // ── 앉는 중 ──
-        if (p.state === 'sitting') {
+        else if (p.state === 'sitting') {
             p.timer--;
             if (p.timer <= 0) {
                 p.state = 'seated';
                 seatMap[p.seat] = true;
             }
-            continue;
         }
 
         // ── 이동 중 ──
-        if (p.state === 'walking') {
+        else if (p.state === 'walking') {
 
             if (p.moveCooldown > 0) {
                 p.moveCooldown--;
-                continue;
+            } else {
+                const next = p.currentCol + 1;
+
+                if (aisleOcc[p.aisle].has(next)) {
+                    // 막힘 - 대기
+                } else {
+                    // 이동
+                    aisleOcc[p.aisle].delete(p.currentCol);
+                    p.currentCol = next;
+                    aisleOcc[p.aisle].add(next);
+                    movedThisTick[p.aisle] = true;
+
+                    // TOP 복도(4행): 쿨다운 3
+                    // BOT 복도(5행): 더 혼잡하므로 쿨다운 4
+                    p.moveCooldown = p.aisle === 'TOP' ? 3 : 4;
+
+                    // 목표 열 도착 → 착석 시작
+                    if (p.currentCol >= p.col) {
+                        p.state = 'sitting';
+                        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+                    }
+                }
             }
+        }
+    }
 
-            const next = p.currentCol + 1;
-
-            // 앞 칸이 막혀있으면 대기 → 병목 카운트
-            if (aisleOcc[p.aisle].has(next)) {
-                bottleneckCount++;
-                continue;
-            }
-
-            // 이동
-            aisleOcc[p.aisle].delete(p.currentCol);
-            p.currentCol = next;
-            aisleOcc[p.aisle].add(next);
-
-            // TOP 복도(4행): 쿨다운 3
-            // BOT 복도(5행): 더 혼잡하므로 쿨다운 4
-            p.moveCooldown = p.aisle === 'TOP' ? 3 : 4;
-
-            // 목표 열 도착 → 착석 시작
-            if (p.currentCol >= p.col) {
-                p.state = 'sitting';
-                p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
-            }
+    // 활성 승객이 있는 복도인데 이번 틱에 아무도 못 움직였으면 낭비 틱
+    for (const aisle of ['TOP', 'BOT']) {
+        if (!movedThisTick[aisle] && activePassengers.some(p => p.state === 'walking' && p.aisle === aisle)) {
+            bottleneckCount++;
         }
     }
 }
@@ -212,7 +215,7 @@ function sortedOrder() {
 // 열(행) 우선 (seatRow 순, 각 행 뒤에서부터)
 function columnOrder() {
     let seats = [];
-    for (const sr of SEAT_ROWS)
+    for (const sr of COLUMN_SEAT_ROWS)
         for (let c = ROWS; c >= 1; c--)
             seats.push(`${sr}${c}`);
     return seats;

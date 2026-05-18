@@ -1,6 +1,7 @@
 // 브라우저용 시각화 스크립트
 const ROWS = 30;
 const SEAT_ROWS = ['A','B','C','D','E','F','G','H','I'];
+const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
 const BASE_SIT_TIME = 4;
@@ -34,19 +35,35 @@ function updatePassengers(activePassengers){
   const aisleOcc={TOP:new Set(),BOT:new Set()};
   for(const p of activePassengers) if(p.state==='walking') aisleOcc[p.aisle].add(p.currentCol);
 
+  const sittingCols = { TOP: new Set(), BOT: new Set() };
+  for(const p of activePassengers){
+    if(p.state === 'sitting') sittingCols[p.aisle].add(p.currentCol);
+  }
+
   for(const p of activePassengers){
     if(p.state==='seated') continue;
     if(p.state==='sitting'){ p.timer--; if(p.timer<=0){ p.state='seated'; seatMap[p.seat]=true; } continue; }
     if(p.state==='walking'){
       if(p.moveCooldown>0){ p.moveCooldown--; continue; }
       const next = p.currentCol+1;
-      if(aisleOcc[p.aisle].has(next)){ bottleneckCount++; continue; }
+      if(aisleOcc[p.aisle].has(next)){ continue; }
       aisleOcc[p.aisle].delete(p.currentCol);
       p.currentCol = next;
       aisleOcc[p.aisle].add(next);
       p.moveCooldown = p.aisle==='TOP'?3:4;
       if(p.currentCol >= p.col){ p.state='sitting'; p.timer = BASE_SIT_TIME + extraSeatTime(p.seat); }
     }
+  }
+
+  // 병목: 쿨다운 없는 walking 승객이 sitting 승객 때문에 막힌 경우만 카운트
+  for(const aisle of ['TOP','BOT']){
+    const blockedBySitting = activePassengers.some(p =>
+      p.state === 'walking' &&
+      p.aisle === aisle &&
+      p.moveCooldown === 0 &&
+      sittingCols[aisle].has(p.currentCol + 1)
+    );
+    if(blockedBySitting) bottleneckCount++;
   }
 }
 
@@ -82,8 +99,8 @@ function randomOrder(){
   for(let i=seats.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[seats[i],seats[j]]=[seats[j],seats[i]]}
   return seats;
 }
-function sortedOrder(){let seats=[]; for(let c=ROWS;c>=1;c--) for(const r of SEAT_ROWS) seats.push(`${r}${c}`); return seats}
-function columnOrder(){let seats=[]; for(const r of SEAT_ROWS) for(let c=ROWS;c>=1;c--) seats.push(`${r}${c}`); return seats}
+function sortedOrder(){let seats=[]; for(let c=ROWS;c>=1;c--) for(const r of COLUMN_SEAT_ROWS) seats.push(`${r}${c}`); return seats}
+function columnOrder(){let seats=[]; for(const r of COLUMN_SEAT_ROWS) for(let c=ROWS;c>=1;c--) seats.push(`${r}${c}`); return seats}
 
 // --- DOM helpers ---
 const seatsContainer = document.getElementById('seats');
@@ -182,118 +199,93 @@ function updateMovingLayer(passengers, activePassengers){
   const layer = document.getElementById('movingLayer');
   if(!layer) return;
 
-  // mark existing walkers for cleanup
+  const seatingRect = seatingCard.getBoundingClientRect();
+
+  // baseLeft: A행 기준으로 한 번만 계산 (모든 행의 좌석 시작 X가 동일)
+  const refRow = seatsContainer.querySelector('.seat-row[data-row="A"]');
+  const refWrap = refRow ? refRow.querySelector('.seat-row-cells') : null;
+  const baseLeft = refWrap ? refWrap.getBoundingClientRect().left - seatingRect.left : 0;
+
+  // 복도 Y: C↔D 사이, F↔G 사이로 고정
+  function getAisleY(aisle){
+    if(aisle === 'TOP'){
+      const r1 = seatsContainer.querySelector('.seat-row[data-row="C"]');
+      const r2 = seatsContainer.querySelector('.seat-row[data-row="D"]');
+      if(r1 && r2) return (r1.getBoundingClientRect().bottom + r2.getBoundingClientRect().top) / 2 - seatingRect.top - 9;
+    } else {
+      const r1 = seatsContainer.querySelector('.seat-row[data-row="F"]');
+      const r2 = seatsContainer.querySelector('.seat-row[data-row="G"]');
+      if(r1 && r2) return (r1.getBoundingClientRect().bottom + r2.getBoundingClientRect().top) / 2 - seatingRect.top - 9;
+    }
+    return 0;
+  }
+
   const seen = new Set();
 
   for(const p of activePassengers){
     if(p.state !== 'walking' && p.state !== 'sitting') continue;
-    const rowEl = seatsContainer.querySelector(`.seat-row[data-row="${p.seatRow}"]`);
-    if(!rowEl) continue;
-    const seatsWrap = rowEl.querySelector('.seat-row-cells');
-    const seatingRect = seatingCard.getBoundingClientRect();
-    const wrapRect = seatsWrap.getBoundingClientRect();
 
-    // base left relative to seating card
-    const baseLeft = wrapRect.left - seatingRect.left;
-    // compute x position: currentCol 0 -> left of first seat
-    let x;
-    let targetX;
-    if(p.currentCol <= 0) x = baseLeft - 28;
-    else x = baseLeft + (p.currentCol - 1) * (SEAT_WIDTH + SEAT_GAP) + (SEAT_WIDTH - 18)/2;
-    // compute aisle Y: walkers should travel in the aisle gap between rows
-    let y;
-    if(p.aisle === 'TOP'){
-      const r1 = seatsContainer.querySelector('.seat-row[data-row="C"]');
-      const r2 = seatsContainer.querySelector('.seat-row[data-row="D"]');
-      if(r1 && r2){
-        const r1box = r1.getBoundingClientRect();
-        const r2box = r2.getBoundingClientRect();
-        const mid = (r1box.bottom + r2box.top) / 2;
-        y = mid - seatingRect.top - 9; // center walker (18px height)
-      } else {
-        y = wrapRect.top - seatingRect.top + (wrapRect.height - 18)/2;
-      }
-    } else {
-      const r1 = seatsContainer.querySelector('.seat-row[data-row="F"]');
-      const r2 = seatsContainer.querySelector('.seat-row[data-row="G"]');
-      if(r1 && r2){
-        const r1box = r1.getBoundingClientRect();
-        const r2box = r2.getBoundingClientRect();
-        const mid = (r1box.bottom + r2box.top) / 2;
-        y = mid - seatingRect.top - 9;
-      } else {
-        y = wrapRect.top - seatingRect.top + (wrapRect.height - 18)/2;
-      }
-    }
+    // X: currentCol 기준
+    const x = p.currentCol <= 0
+      ? baseLeft - 28
+      : baseLeft + (p.currentCol - 1) * (SEAT_WIDTH + SEAT_GAP) + (SEAT_WIDTH - 18) / 2;
+
+    // Y: 항상 복도 기준으로 고정
+    const y = getAisleY(p.aisle);
 
     const id = `walker-${p.seat}`;
     seen.add(id);
     let el = movingElems[id];
-    // create walker if needed
+
     if(!el){
       el = document.createElement('div');
-      el.className='walker'; el.id=id; layer.appendChild(el); movingElems[id]=el;
-      // spawn from recorded waiting DOM spawnStart if available
+      el.className = 'walker'; el.id = id; layer.appendChild(el); movingElems[id] = el;
+
       if(p.spawnStart){
         const startX = p.spawnStart.x;
-        const startY = p.spawnStart.y + 6; // slight offset below icon
-        el.style.transform = `translate(${Math.round(startX)}px, ${Math.round(startY)}px)`;
-        // animate: move up to slot (small), then to aisle, then horizontally
+        const startY = p.spawnStart.y + 6;
+        el.style.transform = `translate(${startX}px, ${startY}px)`;
         requestAnimationFrame(()=>{
-          el.style.transform = `translate(${Math.round(startX)}px, ${Math.round(startY - 8)}px)`;
+          el.style.transform = `translate(${startX}px, ${startY - 8}px)`;
           setTimeout(()=>{
-            const aisleY = Math.round(y);
-            el.style.transform = `translate(${Math.round(startX)}px, ${aisleY}px)`;
-            setTimeout(()=>{
-              const entryX = (p.currentCol <= 0) ? (baseLeft - 28) : x;
-              el.style.transform = `translate(${Math.round(entryX)}px, ${aisleY}px)`;
-            }, 120);
+            el.style.transform = `translate(${startX}px, ${Math.round(y)}px)`;
+            setTimeout(()=>{ el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`; }, 120);
           }, 120);
         });
-        // clear spawnStart so we don't reuse it
         delete p.spawnStart;
       } else {
-        // fallback: spawn from left-side stack area
         const sideRect = passengerSide.getBoundingClientRect();
-        const startX = sideRect.left - seatingRect.left + (sideRect.width - 18)/2 - 6; // small offset
+        const startX = sideRect.left - seatingRect.left + (sideRect.width - 18) / 2 - 6;
         const startY = seatingRect.height + 12;
-        el.style.transform = `translate(${Math.round(startX)}px, ${Math.round(startY)}px)`;
+        el.style.transform = `translate(${startX}px, ${startY}px)`;
         requestAnimationFrame(()=>{
-          const aisleY = Math.round(y);
-          el.style.transform = `translate(${Math.round(startX)}px, ${aisleY}px)`;
-          setTimeout(()=>{
-            const entryX = (p.currentCol <= 0) ? (baseLeft - 28) : x;
-            el.style.transform = `translate(${Math.round(entryX)}px, ${aisleY}px)`;
-          }, 120);
+          el.style.transform = `translate(${startX}px, ${Math.round(y)}px)`;
+          setTimeout(()=>{ el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`; }, 120);
         });
       }
-    } else {
-      // update position normally
-      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    }
-
-    // handle sitting transition: animate into seat center
-    if(p.state === 'sitting'){
+    } else if(p.state === 'sitting'){
+      // 착석 중: 실제 좌석 위치로 이동
       const seatEl = document.querySelector(`[data-seat="${p.seat}"]`);
       if(seatEl){
         const seatRect = seatEl.getBoundingClientRect();
-        const seatX = seatRect.left - seatingRect.left + (seatRect.width - 18)/2;
-        const seatY = seatRect.top - seatingRect.top + (seatRect.height - 18)/2;
-        // move walker into seat
+        const seatX = seatRect.left - seatingRect.left + (seatRect.width - 18) / 2;
+        const seatY = seatRect.top - seatingRect.top + (seatRect.height - 18) / 2;
         requestAnimationFrame(()=>{
           el.style.transform = `translate(${Math.round(seatX)}px, ${Math.round(seatY)}px)`;
           el.style.opacity = '0.35';
-          // mark seat as occupied (purple)
           seatEl.classList.add('seated');
         });
       }
     } else {
+      // 걷는 중: 복도 Y 고정, X만 업데이트
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
       el.style.opacity = '1';
     }
   }
 
-  // remove walkers not seen anymore
-  for(const id in movingElems){ if(!seen.has(id)){ const e = movingElems[id]; if(e && e.parentNode) e.parentNode.removeChild(e); delete movingElems[id]; } }
+  for(const id in movingElems){
+    if(!seen.has(id)){ const e = movingElems[id]; if(e && e.parentNode) e.parentNode.removeChild(e); delete movingElems[id]; }
+  }
 }
 
 // --- controller ---
