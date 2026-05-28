@@ -45,38 +45,7 @@ function updatePassengers(activePassengers){
   let blockedThisTick = 0;
   const occupied = new Set();
 
-  const sittingCols = { TOP: new Set(), BOT: new Set() };
   for(const p of activePassengers){
-    if(p.state === 'sitting') sittingCols[p.aisle].add(p.currentCol);
-  }
-
-  for(const p of activePassengers){
-<<<<<<< HEAD
-    if(p.state==='seated') continue;
-    if(p.state==='sitting'){ p.timer--; if(p.timer<=0){ p.state='seated'; seatMap[p.seat]=true; } continue; }
-    if(p.state==='walking'){
-      if(p.moveCooldown>0){ p.moveCooldown--; continue; }
-      const next = p.currentCol+1;
-      if(aisleOcc[p.aisle].has(next)){ continue; }
-      aisleOcc[p.aisle].delete(p.currentCol);
-      p.currentCol = next;
-      aisleOcc[p.aisle].add(next);
-      p.moveCooldown = p.aisle==='TOP'?3:4;
-      if(p.currentCol >= p.col){ p.state='sitting'; p.timer = BASE_SIT_TIME + extraSeatTime(p.seat); }
-    }
-  }
-
-  // 병목: 쿨다운 없는 walking 승객이 sitting 승객 때문에 막힌 경우만 카운트
-  for(const aisle of ['TOP','BOT']){
-    const blockedBySitting = activePassengers.some(p =>
-      p.state === 'walking' &&
-      p.aisle === aisle &&
-      p.moveCooldown === 0 &&
-      sittingCols[aisle].has(p.currentCol + 1)
-    );
-    if(blockedBySitting) bottleneckCount++;
-  }
-=======
     if(p.state !== 'walking') continue;
     const key = `${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`;
     occupied.add(key);
@@ -106,7 +75,6 @@ function updatePassengers(activePassengers){
   }
 
   return blockedThisTick;
->>>>>>> ef1f0ea (경로ㄱ까지 수정했어요)
 }
 
 function tickSimulation(passengers, activePassengers){
@@ -350,65 +318,6 @@ function updateMovingLayer(passengers, activePassengers){
   const seen = new Set();
 
   for(const p of activePassengers){
-<<<<<<< HEAD
-    if(p.state !== 'walking' && p.state !== 'sitting') continue;
-
-    // X: currentCol 기준
-    const x = p.currentCol <= 0
-      ? baseLeft - 28
-      : baseLeft + (p.currentCol - 1) * (SEAT_WIDTH + SEAT_GAP) + (SEAT_WIDTH - 18) / 2;
-
-    // Y: 항상 복도 기준으로 고정
-    const y = getAisleY(p.aisle);
-
-    const id = `walker-${p.seat}`;
-    seen.add(id);
-    let el = movingElems[id];
-
-    if(!el){
-      el = document.createElement('div');
-      el.className = 'walker'; el.id = id; layer.appendChild(el); movingElems[id] = el;
-
-      if(p.spawnStart){
-        const startX = p.spawnStart.x;
-        const startY = p.spawnStart.y + 6;
-        el.style.transform = `translate(${startX}px, ${startY}px)`;
-        requestAnimationFrame(()=>{
-          el.style.transform = `translate(${startX}px, ${startY - 8}px)`;
-          setTimeout(()=>{
-            el.style.transform = `translate(${startX}px, ${Math.round(y)}px)`;
-            setTimeout(()=>{ el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`; }, 120);
-          }, 120);
-        });
-        delete p.spawnStart;
-      } else {
-        const sideRect = passengerSide.getBoundingClientRect();
-        const startX = sideRect.left - seatingRect.left + (sideRect.width - 18) / 2 - 6;
-        const startY = seatingRect.height + 12;
-        el.style.transform = `translate(${startX}px, ${startY}px)`;
-        requestAnimationFrame(()=>{
-          el.style.transform = `translate(${startX}px, ${Math.round(y)}px)`;
-          setTimeout(()=>{ el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`; }, 120);
-        });
-      }
-    } else if(p.state === 'sitting'){
-      // 착석 중: 실제 좌석 위치로 이동
-      const seatEl = document.querySelector(`[data-seat="${p.seat}"]`);
-      if(seatEl){
-        const seatRect = seatEl.getBoundingClientRect();
-        const seatX = seatRect.left - seatingRect.left + (seatRect.width - 18) / 2;
-        const seatY = seatRect.top - seatingRect.top + (seatRect.height - 18) / 2;
-        requestAnimationFrame(()=>{
-          el.style.transform = `translate(${Math.round(seatX)}px, ${Math.round(seatY)}px)`;
-          el.style.opacity = '0.35';
-          seatEl.classList.add('seated');
-        });
-      }
-    } else {
-      // 걷는 중: 복도 Y 고정, X만 업데이트
-      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-      el.style.opacity = '1';
-=======
     if(p.state !== 'walking') continue;
     const id = `walker-${p.seat}`;
     seen.add(id);
@@ -416,7 +325,6 @@ function updateMovingLayer(passengers, activePassengers){
     if(!el){
       el = document.createElement('div');
       el.className='walker'; el.id=id; layer.appendChild(el); movingElems[id]=el;
->>>>>>> ef1f0ea (경로ㄱ까지 수정했어요)
     }
     el.style.transform = `translate(${Math.round(p.pos.x)}px, ${Math.round(p.pos.y)}px)`;
     el.style.opacity = '1';
@@ -495,10 +403,6 @@ densityControl.addEventListener('input', updateControls);
 updateControls();
 
 // 초기 화면 구성
-<<<<<<< HEAD
-buildSeatGrid();
-=======
 buildSeatGrid();
 updateLayout();
 window.addEventListener('resize', updateLayout);
->>>>>>> ef1f0ea (경로ㄱ까지 수정했어요)
