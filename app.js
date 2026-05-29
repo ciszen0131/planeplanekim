@@ -4,12 +4,12 @@ const SEAT_ROWS = ['A','B','C','D','E','F','G','H','I'];
 const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
-const BASE_SIT_TIME = 4;
-const TICK_MS = 60;       // 애니메이션 재생 속도
-const TICK_SECONDS = 1;
-const WALK_SPEED = 140;   // px/sec
+const BASE_SIT_TIME = 2;
+const TICK_MS = 100;       // 애니메이션 재생 속도
+const TICK_SECONDS = 0.2;
+const WALK_SPEED = 80;   // px/sec
 const MIN_SPACING = 40;
-const GRID_STEP = 40;
+const GRID_STEP = 32;
 
 const BLOCKING = {A:['B','C'],B:['C'],C:[],D:[],E:[],F:[],G:[],H:['G'],I:['G','H']};
 
@@ -45,14 +45,13 @@ function updatePassengers(activePassengers){
   let blockedThisTick = 0;
   const occupied = new Set();
 
-  for(const p of activePassengers){
-    if(p.state !== 'walking') continue;
+  const walkers = activePassengers.filter(p => p.state === 'walking');
+  for(const p of walkers){
     const key = `${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`;
     occupied.add(key);
   }
 
-  for(const p of activePassengers){
-    if(p.state !== 'walking') continue;
+  for(const p of walkers){
     if(!p.path || p.pathIndex >= p.path.length - 1){
       p.state = 'seated';
       seatMap[p.seat] = true;
@@ -79,8 +78,7 @@ function updatePassengers(activePassengers){
 
 function tickSimulation(passengers, activePassengers){
   currentTick++;
-  const entryDelay = Math.max(1, Math.round(ENTRY_DELAY / densityFactor));
-  if(currentTick % entryDelay === 0){
+  if(currentTick % 1 === 0){
     const next = passengers.find(p=>p.state==='waiting');
     if(next && layoutData){
       const path = buildPassengerPath(next.seat);
@@ -120,7 +118,7 @@ const densityControl = document.getElementById('densityControl');
 const speedValue = document.getElementById('speedValue');
 const densityValue = document.getElementById('densityValue');
 const passengerSide = document.getElementById('passengerSide');
-let selectedMode = 'sorted';
+let selectedMode = 'random';
 
 // visual constants (match CSS)
 const SEAT_WIDTH = 32;
@@ -211,6 +209,9 @@ function updateLayout(){
   const entryX = entryRect ? (entryRect.left - seatingRect.left - 34) : -34;
   const entryY = seatingRect.height - 6;
 
+  const stepX = seatCenters.A1 && seatCenters.A2 ? Math.abs(seatCenters.A2.x - seatCenters.A1.x) : GRID_STEP;
+  const stepY = seatCenters.A1 && seatCenters.B1 ? Math.abs(seatCenters.B1.y - seatCenters.A1.y) : GRID_STEP;
+
   layoutData = {
     seatingRect,
     seatCenters,
@@ -218,6 +219,8 @@ function updateLayout(){
     aisleBottomY,
     entryX,
     entryY,
+    stepX,
+    stepY,
   };
 }
 
@@ -234,7 +237,8 @@ function buildPassengerPath(seatId){
     if(dist < 1){
       return;
     }
-    const steps = Math.max(1, Math.round(dist / GRID_STEP));
+    const step = Math.abs(dx) > Math.abs(dy) ? layoutData.stepX : layoutData.stepY;
+    const steps = Math.max(1, Math.round(dist / step));
     for(let i = 1; i <= steps; i++){
       waypoints.push({
         x: from.x + (dx * i) / steps,
@@ -367,8 +371,8 @@ function loop(now){
   if(accumulator >= TICK_MS){
     tickSimulation(globalPassengers, globalActive);
     accumulator = 0;
+    render(globalPassengers, globalActive);
   }
-  render(globalPassengers, globalActive);
   if(allSeated(globalPassengers)){
     if(animationId){ cancelAnimationFrame(animationId); animationId=null; }
     return;
