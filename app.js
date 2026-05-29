@@ -113,8 +113,8 @@ const timeEl = document.getElementById('time');
 const countEl = document.getElementById('count');
 const progressBar = document.getElementById('progressBar');
 const bottleneckEl = document.getElementById('bottleneck');
-const speedControl = document.getElementById('speedControl');
-const densityControl = document.getElementById('densityControl');
+// const speedControl = document.getElementById('speedControl');
+// const densityControl = document.getElementById('densityControl');
 const speedValue = document.getElementById('speedValue');
 const densityValue = document.getElementById('densityValue');
 const passengerSide = document.getElementById('passengerSide');
@@ -395,16 +395,16 @@ document.querySelectorAll('.tab').forEach(btn=>{
 document.getElementById('start').addEventListener('click', ()=> startSimulation(selectedMode));
 document.getElementById('pause').addEventListener('click', pauseSimulation);
 
-function updateControls(){
-  speedFactor = parseFloat(speedControl.value);
-  densityFactor = parseFloat(densityControl.value);
-  speedValue.textContent = `${speedFactor.toFixed(1)}x`;
-  densityValue.textContent = `${densityFactor.toFixed(1)}x`;
-}
+// function updateControls(){
+//   speedFactor = parseFloat(speedControl.value);
+//   densityFactor = parseFloat(densityControl.value);
+//   speedValue.textContent = `${speedFactor.toFixed(1)}x`;
+//   densityValue.textContent = `${densityFactor.toFixed(1)}x`;
+// }
 
-speedControl.addEventListener('input', updateControls);
-densityControl.addEventListener('input', updateControls);
-updateControls();
+// speedControl.addEventListener('input', updateControls);
+// densityControl.addEventListener('input', updateControls);
+// updateControls();
 
 // 초기 화면 구성
 buildSeatGrid();
