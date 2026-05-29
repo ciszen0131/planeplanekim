@@ -1,13 +1,12 @@
-// 브라우저용 시각화 스크립트
 const ROWS = 30;
 const SEAT_ROWS = ['A','B','C','D','E','F','G','H','I'];
 const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
-const BASE_SIT_TIME = 2;
-const TICK_MS = 100;       // 애니메이션 재생 속도
+const BASE_SIT_TIME = 4;
+const TICK_MS = 100;
 const TICK_SECONDS = 0.2;
-const WALK_SPEED = 80;   // px/sec
+const WALK_SPEED = 80;
 const MIN_SPACING = 40;
 const GRID_STEP = 32;
 
@@ -33,6 +32,7 @@ function createPassengers(seats){
 
 let bottleneckCount = 0;
 let bottleneckTime = 0;
+let bottleneckActive = false;
 let currentTick = 0;
 let displayTime = 0;
 let displayCount = 0;
@@ -42,38 +42,57 @@ let densityFactor = 1.0;
 let layoutData = null;
 
 function updatePassengers(activePassengers){
-  let blockedThisTick = 0;
   const occupied = new Set();
-
-  const walkers = activePassengers.filter(p => p.state === 'walking');
-  for(const p of walkers){
-    const key = `${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`;
-    occupied.add(key);
+  for(const p of activePassengers){
+    if(p.state === 'walking' || p.state === 'sitting'){
+      occupied.add(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
+    }
   }
 
-  for(const p of walkers){
-    if(!p.path || p.pathIndex >= p.path.length - 1){
-      p.state = 'seated';
-      seatMap[p.seat] = true;
+  for(const p of activePassengers){
+    if(p.state === 'seated') continue;
+
+    if(p.state === 'sitting'){
+      p.timer--;
+      if(p.timer <= 0){
+        p.state = 'seated';
+        seatMap[p.seat] = true;
+        occupied.delete(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
+      }
       continue;
     }
 
+    if(p.state === 'walking'){
+      if(!p.path || p.pathIndex >= p.path.length - 1){
+        p.state = 'sitting';
+        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+        continue;
+      }
+
+      const next = p.path[p.pathIndex + 1];
+      const nextKey = `${Math.round(next.x)}|${Math.round(next.y)}`;
+
+      if(occupied.has(nextKey)){
+        continue;
+      }
+
+      occupied.delete(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
+      p.pos.x = next.x;
+      p.pos.y = next.y;
+      occupied.add(nextKey);
+      p.pathIndex++;
+    }
+  }
+
+  for(const p of activePassengers){
+    if(p.state !== 'walking') { p.blocked = false; continue; }
+    if(!p.path || p.pathIndex >= p.path.length - 1){ p.blocked = false; continue; }
+    const seatX = layoutData && layoutData.seatCenters[p.seat] ? Math.round(layoutData.seatCenters[p.seat].x) : -1;
+    if(Math.round(p.pos.x) !== seatX){ p.blocked = false; continue; }
     const next = p.path[p.pathIndex + 1];
     const nextKey = `${Math.round(next.x)}|${Math.round(next.y)}`;
-    if(occupied.has(nextKey)){
-      bottleneckCount++;
-      blockedThisTick++;
-      continue;
-    }
-
-    occupied.delete(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
-    p.pos.x = next.x;
-    p.pos.y = next.y;
-    occupied.add(nextKey);
-    p.pathIndex++;
+    p.blocked = occupied.has(nextKey);
   }
-
-  return blockedThisTick;
 }
 
 function tickSimulation(passengers, activePassengers){
@@ -91,8 +110,17 @@ function tickSimulation(passengers, activePassengers){
       }
     }
   }
-  const blocked = updatePassengers(activePassengers);
-  if(blocked > 0){
+  updatePassengers(activePassengers);
+  console.log('blocked:', activePassengers.filter(p=>p.blocked).map(p=>({seat:p.seat, state:p.state, x:Math.round(p.pos.x), y:Math.round(p.pos.y)})));
+  const isBottleneck = activePassengers.some(p => p.blocked === true);
+  if(isBottleneck && !bottleneckActive){
+    bottleneckActive = true;
+  }
+  if(!isBottleneck && bottleneckActive){
+    bottleneckActive = false;
+    bottleneckCount++;
+  }
+  if(bottleneckActive){
     bottleneckTime += TICK_MS / 1000;
   }
 }
@@ -107,7 +135,6 @@ function randomOrder(){
 function sortedOrder(){let seats=[]; for(let c=ROWS;c>=1;c--) for(const r of COLUMN_SEAT_ROWS) seats.push(`${r}${c}`); return seats}
 function columnOrder(){let seats=[]; for(const r of COLUMN_SEAT_ROWS) for(let c=ROWS;c>=1;c--) seats.push(`${r}${c}`); return seats}
 
-// --- DOM helpers ---
 const seatsContainer = document.getElementById('seats');
 const timeEl = document.getElementById('time');
 const countEl = document.getElementById('count');
@@ -120,32 +147,21 @@ const densityValue = document.getElementById('densityValue');
 const passengerSide = document.getElementById('passengerSide');
 let selectedMode = 'random';
 
-// visual constants (match CSS)
 const SEAT_WIDTH = 32;
 const SEAT_GAP = 8;
 const LABEL_WIDTH = 60;
 let movingElems = {};
 
-function lerp(a, b, t){
-  return a + (b - a) * t;
-}
-
-function clamp(val, min, max){
-  return Math.max(min, Math.min(max, val));
-}
-
-function easeInOut(t){
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
+function lerp(a, b, t){ return a + (b - a) * t; }
+function clamp(val, min, max){ return Math.max(min, Math.min(max, val)); }
+function easeInOut(t){ return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
 
 function buildSeatGrid(){
   seatsContainer.innerHTML = '';
-  // create rows; insert visual aisle gap between C↔D and F↔G
   for(const r of SEAT_ROWS){
     const rowEl = document.createElement('div');
     rowEl.className = 'seat-row';
     rowEl.dataset.row = r;
-    // add aisle gap before D and before G
     if(r === 'D' || r === 'G') rowEl.classList.add('aisle-gap');
 
     const label = document.createElement('div');
@@ -168,7 +184,6 @@ function buildSeatGrid(){
     seatsContainer.appendChild(rowEl);
   }
 
-  // create moving layer once
   const seatingCard = seatsContainer.closest('.seating-card');
   if(seatingCard){
     let layer = seatingCard.querySelector('.moving-layer');
@@ -212,16 +227,7 @@ function updateLayout(){
   const stepX = seatCenters.A1 && seatCenters.A2 ? Math.abs(seatCenters.A2.x - seatCenters.A1.x) : GRID_STEP;
   const stepY = seatCenters.A1 && seatCenters.B1 ? Math.abs(seatCenters.B1.y - seatCenters.A1.y) : GRID_STEP;
 
-  layoutData = {
-    seatingRect,
-    seatCenters,
-    aisleTopY,
-    aisleBottomY,
-    entryX,
-    entryY,
-    stepX,
-    stepY,
-  };
+  layoutData = { seatingRect, seatCenters, aisleTopY, aisleBottomY, entryX, entryY, stepX, stepY };
 }
 
 function buildPassengerPath(seatId){
@@ -234,16 +240,11 @@ function buildPassengerPath(seatId){
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const dist = Math.hypot(dx, dy);
-    if(dist < 1){
-      return;
-    }
+    if(dist < 1) return;
     const step = Math.abs(dx) > Math.abs(dy) ? layoutData.stepX : layoutData.stepY;
     const steps = Math.max(1, Math.round(dist / step));
     for(let i = 1; i <= steps; i++){
-      waypoints.push({
-        x: from.x + (dx * i) / steps,
-        y: from.y + (dy * i) / steps,
-      });
+      waypoints.push({ x: from.x + (dx * i) / steps, y: from.y + (dy * i) / steps });
     }
   };
 
@@ -262,19 +263,19 @@ function buildPassengerPath(seatId){
 }
 
 function render(passengers, activePassengers){
-  // seats
-  // update seats: keep 'seated' once set so filled seats retain color
   for(const key in seatMap){
     const el = document.querySelector(`[data-seat="${key}"]`);
     if(!el) continue;
     if(seatMap[key]){ el.classList.remove('sitting'); el.classList.add('seated'); }
     else { el.classList.remove('sitting'); }
   }
-  // sitting (those currently in sitting state)
-  for(const p of activePassengers){ if(p.state==='sitting'){ const el=document.querySelector(`[data-seat="${p.seat}"]`); if(el){ el.classList.add('sitting'); } } }
+  for(const p of activePassengers){
+    if(p.state==='sitting'){
+      const el=document.querySelector(`[data-seat="${p.seat}"]`);
+      if(el) el.classList.add('sitting');
+    }
+  }
 
-
-  // stats
   const total = passengers.length;
   const seated = passengers.filter(p=>p.state==='seated').length;
   const targetTime = currentTick * TICK_SECONDS;
@@ -286,9 +287,7 @@ function render(passengers, activePassengers){
   progressBar.style.width = `${Math.round((seated/total)*100)}%`;
   bottleneckEl.textContent = `${displayBottleneck.toFixed(0)}s`;
 
-  // passenger side (waiting icons) - render bottom-up stack matching waiting queue
   passengerSide.innerHTML = '';
-
   updateMovingLayer(passengers, activePassengers);
 }
 
@@ -299,13 +298,10 @@ function updateMovingLayer(passengers, activePassengers){
   if(!layer) return;
 
   const seatingRect = seatingCard.getBoundingClientRect();
-
-  // baseLeft: A행 기준으로 한 번만 계산 (모든 행의 좌석 시작 X가 동일)
   const refRow = seatsContainer.querySelector('.seat-row[data-row="A"]');
   const refWrap = refRow ? refRow.querySelector('.seat-row-cells') : null;
   const baseLeft = refWrap ? refWrap.getBoundingClientRect().left - seatingRect.left : 0;
 
-  // 복도 Y: C↔D 사이, F↔G 사이로 고정
   function getAisleY(aisle){
     if(aisle === 'TOP'){
       const r1 = seatsContainer.querySelector('.seat-row[data-row="C"]');
@@ -322,7 +318,7 @@ function updateMovingLayer(passengers, activePassengers){
   const seen = new Set();
 
   for(const p of activePassengers){
-    if(p.state !== 'walking') continue;
+    if(p.state !== 'walking' && p.state !== 'sitting') continue;
     const id = `walker-${p.seat}`;
     seen.add(id);
     let el = movingElems[id];
@@ -331,7 +327,9 @@ function updateMovingLayer(passengers, activePassengers){
       el.className='walker'; el.id=id; layer.appendChild(el); movingElems[id]=el;
     }
     el.style.transform = `translate(${Math.round(p.pos.x)}px, ${Math.round(p.pos.y)}px)`;
-    el.style.opacity = '1';
+    el.style.opacity = p.state === 'sitting' ? '0.4' : '1';
+    if(p.blocked) el.classList.add('blocked');
+    else el.classList.remove('blocked');
   }
 
   for(const id in movingElems){
@@ -339,7 +337,6 @@ function updateMovingLayer(passengers, activePassengers){
   }
 }
 
-// --- controller ---
 let animationId = null;
 let globalPassengers = [];
 let globalActive = [];
@@ -347,8 +344,8 @@ let lastFrameTime = 0;
 let accumulator = 0;
 
 function startSimulation(mode='random'){
-  resetSeatMap(); currentTick=0; bottleneckCount=0; bottleneckTime=0; globalActive=[];
-  displayTime = 0; displayCount = 0; displayBottleneck = 0;
+  resetSeatMap(); currentTick=0; bottleneckCount=0; bottleneckTime=0; bottleneckActive=false; globalActive=[];
+  displayTime=0; displayCount=0; displayBottleneck=0;
   buildSeatGrid();
   updateLayout();
   const orderFn = {random:randomOrder, sorted:sortedOrder, column:columnOrder};
@@ -372,17 +369,20 @@ function loop(now){
     tickSimulation(globalPassengers, globalActive);
     accumulator = 0;
     render(globalPassengers, globalActive);
-  }
-  if(allSeated(globalPassengers)){
-    if(animationId){ cancelAnimationFrame(animationId); animationId=null; }
-    return;
+    if(allSeated(globalPassengers)){
+      const total = globalPassengers.length;
+      displayCount = total;
+      countEl.textContent = `${total} / ${total}명`;
+      progressBar.style.width = "100%";
+      if(animationId){ cancelAnimationFrame(animationId); animationId=null; }
+      return;
+    }
   }
   animationId = requestAnimationFrame(loop);
 }
 
-// tabs: select mode
 document.querySelectorAll('.tab').forEach(btn=>{
-  btn.addEventListener('click', (e)=>{
+  btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     const txt = btn.textContent.trim();
@@ -406,7 +406,6 @@ speedControl.addEventListener('input', updateControls);
 densityControl.addEventListener('input', updateControls);
 updateControls();
 
-// 초기 화면 구성
 buildSeatGrid();
 updateLayout();
 window.addEventListener('resize', updateLayout);
