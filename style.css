@@ -25,7 +25,7 @@ body{
 }
 
 .topbar{
-  height:64px;
+  height:80px;
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -72,17 +72,19 @@ body{
 
 .actions button:hover{background:#2a2a36}
 
-#start{background:#1f2440;color:#f1f2ff;border-color:rgba(111,115,255,0.35)}
+#start{background:#5b60ff;color:#f1f2ff;border-color:#5b60ff}
 #start:hover{background:#2a2f52}
-#pause{background:#2a2a23;color:#f3e8b5;border-color:rgba(245,208,66,0.35)}
+#pause{background:rgba(245,208,66);color:#1a1a1a;border-color:rgba(245,208,66)}
+#pause:hover{background:rgba(245,208,66,0.35)}
 
-.container{padding:28px 60px 36px}
+.container{padding:100jepx 60px 36px}
 
 .stats{
   display:flex;
   gap:20px;
   justify-content:center;
-  margin-bottom:18px;
+  margin-bottom:50px;
+  margin-top:36px;
 }
 
 .card{
