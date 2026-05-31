@@ -9,6 +9,7 @@ const TICK_SECONDS = 0.2;
 const WALK_SPEED = 80;
 const MIN_SPACING = 40;
 const GRID_STEP = 32;
+const WALKER_SIZE = 18;
 
 const BLOCKING = {A:['B','C'],B:['C'],C:[],D:[],E:[],F:[],G:[],H:['G'],I:['G','H']};
 
@@ -42,10 +43,11 @@ let densityFactor = 1.0;
 let layoutData = null;
 
 function updatePassengers(activePassengers){
-  const occupied = new Set();
+  const occupied = [];
   for(const p of activePassengers){
+    p.blocked = false;
     if(p.state === 'walking' || p.state === 'sitting'){
-      occupied.add(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
+      occupied.push(p);
     }
   }
 
@@ -70,28 +72,29 @@ function updatePassengers(activePassengers){
       }
 
       const next = p.path[p.pathIndex + 1];
-      const nextKey = `${Math.round(next.x)}|${Math.round(next.y)}`;
 
-      if(occupied.has(nextKey)){
+      const blocker = occupied.find(other => {
+        if(other === p || !other.pos) return false;
+        const sameAisle = Math.abs(other.pos.y - next.y) < WALKER_SIZE;
+        const ahead = other.pos.x > p.pos.x;
+        const tooClose = Math.abs(other.pos.x - next.x) < MIN_SPACING;
+        return sameAisle && ahead && tooClose;
+      });
+
+      if(blocker){
+        p.blocked = true;
         continue;
       }
 
-      occupied.delete(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
       p.pos.x = next.x;
       p.pos.y = next.y;
-      occupied.add(nextKey);
       p.pathIndex++;
-    }
-  }
 
-  for(const p of activePassengers){
-    if(p.state !== 'walking') { p.blocked = false; continue; }
-    if(!p.path || p.pathIndex >= p.path.length - 1){ p.blocked = false; continue; }
-    const seatX = layoutData && layoutData.seatCenters[p.seat] ? Math.round(layoutData.seatCenters[p.seat].x) : -1;
-    if(Math.round(p.pos.x) !== seatX){ p.blocked = false; continue; }
-    const next = p.path[p.pathIndex + 1];
-    const nextKey = `${Math.round(next.x)}|${Math.round(next.y)}`;
-    p.blocked = occupied.has(nextKey);
+      if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
+        p.state = 'sitting';
+        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+      }
+    }
   }
 }
 
@@ -104,6 +107,7 @@ function tickSimulation(passengers, activePassengers){
       if(path){
         next.path = path;
         next.pathIndex = 0;
+        next.seatEntryIndex = path.seatEntryIndex;
         next.pos = { x: path[0].x, y: path[0].y };
         next.state = 'walking';
         activePassengers.push(next);
@@ -111,7 +115,6 @@ function tickSimulation(passengers, activePassengers){
     }
   }
   updatePassengers(activePassengers);
-  console.log('blocked:', activePassengers.filter(p=>p.blocked).map(p=>({seat:p.seat, state:p.state, x:Math.round(p.pos.x), y:Math.round(p.pos.y)})));
   const isBottleneck = activePassengers.some(p => p.blocked === true);
   if(isBottleneck && !bottleneckActive){
     bottleneckActive = true;
@@ -120,8 +123,8 @@ function tickSimulation(passengers, activePassengers){
     bottleneckActive = false;
     bottleneckCount++;
   }
-  if(bottleneckActive){
-    bottleneckTime += TICK_MS / 1000;
+  if(isBottleneck){
+    bottleneckTime += TICK_SECONDS;
   }
 }
 
@@ -140,10 +143,7 @@ const timeEl = document.getElementById('time');
 const countEl = document.getElementById('count');
 const progressBar = document.getElementById('progressBar');
 const bottleneckEl = document.getElementById('bottleneck');
-// const speedControl = document.getElementById('speedControl');
-// const densityControl = document.getElementById('densityControl');
-const speedValue = document.getElementById('speedValue');
-const densityValue = document.getElementById('densityValue');
+
 const passengerSide = document.getElementById('passengerSide');
 let selectedMode = 'random';
 
@@ -258,8 +258,11 @@ function buildPassengerPath(seatId){
   } else {
     addSegment(bottomEntry, { x: seatCenter.x, y: layoutData.aisleBottomY });
   }
+  const seatEntryIndex = waypoints.length;
   addSegment({ x: seatCenter.x, y: isTop ? layoutData.aisleTopY : layoutData.aisleBottomY }, { x: seatCenter.x, y: seatCenter.y });
-  return [{ x: start.x, y: start.y }, ...waypoints];
+  const path = [{ x: start.x, y: start.y }, ...waypoints];
+  path.seatEntryIndex = seatEntryIndex;
+  return path;
 }
 
 function render(passengers, activePassengers){
@@ -395,16 +398,7 @@ document.querySelectorAll('.tab').forEach(btn=>{
 document.getElementById('start').addEventListener('click', ()=> startSimulation(selectedMode));
 document.getElementById('pause').addEventListener('click', pauseSimulation);
 
-// function updateControls(){
-//   speedFactor = parseFloat(speedControl.value);
-//   densityFactor = parseFloat(densityControl.value);
-//   speedValue.textContent = `${speedFactor.toFixed(1)}x`;
-//   densityValue.textContent = `${densityFactor.toFixed(1)}x`;
-// }
 
-// speedControl.addEventListener('input', updateControls);
-// densityControl.addEventListener('input', updateControls);
-// updateControls();
 
 buildSeatGrid();
 updateLayout();
