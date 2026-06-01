@@ -214,7 +214,7 @@ body{
 }
 
 .moving-layer{position:absolute;inset:0;pointer-events:none}
-.walker{position:absolute;width:18px;height:18px;border-radius:50%;background:var(--accent);transform:translate3d(0,0,0);transition:none}
+.walker{position:absolute;width:18px;height:18px;border-radius:50%;background:var(--accent);transform:translate3d(0,0,0);transition:transform 90ms linear,opacity 120ms ease,background-color 120ms ease;will-change:transform,opacity}
 .walker.blocked{background:#ff4d4d}
 .walker.vip{background:var(--accent)}
 

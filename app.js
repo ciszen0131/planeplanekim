@@ -83,7 +83,14 @@ function markPassengerSeated(p){
   seatMap[p.seat] = true;
 }
 
-function updatePassengers(activePassengers){
+function stepsPerTick(){
+  return layoutData ? Math.max(1, Math.round(layoutData.stepX / PATH_STEP)) : 1;
+}
+
+function updatePassengers(activePassengers, tickTimers = true){
+  let moved = false;
+  let blocked = false;
+
   for(const p of activePassengers){
     p.blocked = false;
   }
@@ -96,9 +103,11 @@ function updatePassengers(activePassengers){
     if(p.state === 'seated') continue;
 
     if(p.state === 'sitting'){
-      p.timer--;
-      if(p.timer <= 0){
-        markPassengerSeated(p);
+      if(tickTimers){
+        p.timer--;
+        if(p.timer <= 0){
+          markPassengerSeated(p);
+        }
       }
       continue;
     }
@@ -110,28 +119,24 @@ function updatePassengers(activePassengers){
         continue;
       }
 
-      const stepsPerTick = layoutData ? Math.max(1, Math.round(layoutData.stepX / PATH_STEP)) : 1;
+      const next = p.path[p.pathIndex + 1];
+      const blocker = activePassengers.find(other => other !== p && passengerBlocksMove(other, next));
 
-      for(let step = 0; step < stepsPerTick; step++){
-        if(!p.path || p.pathIndex >= p.path.length - 1) break;
-        const next = p.path[p.pathIndex + 1];
-        const blocker = activePassengers.find(other => other !== p && passengerBlocksMove(other, next));
+      if(blocker){
+        keepSpacingBehind(p, blocker);
+        p.blocked = isInSeatAisle(p.pos) || isInSeatAisle(next);
+        blocked = blocked || p.blocked;
+        continue;
+      }
 
-        if(blocker){
-          keepSpacingBehind(p, blocker);
-          p.blocked = isInSeatAisle(p.pos) || isInSeatAisle(next);
-          break;
-        }
+      p.pos.x = next.x;
+      p.pos.y = next.y;
+      p.pathIndex++;
+      moved = true;
 
-        p.pos.x = next.x;
-        p.pos.y = next.y;
-        p.pathIndex++;
-
-        if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
-          p.state = 'sitting';
-          p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
-          break;
-        }
+      if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
+        p.state = 'sitting';
+        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
       }
     }
   }
@@ -141,6 +146,8 @@ function updatePassengers(activePassengers){
       activePassengers.splice(i, 1);
     }
   }
+
+  return { moved, blocked };
 }
 
 function canEnterPath(path, activePassengers){
@@ -151,24 +158,33 @@ function canEnterPath(path, activePassengers){
   });
 }
 
+function admitNextPassenger(passengers, activePassengers){
+  const next = passengers.find(p=>p.state==='waiting');
+  if(!next || !layoutData) return false;
+  const path = buildPassengerPath(next.seat);
+  if(path && canEnterPath(path, activePassengers)){
+    next.path = path;
+    next.pathIndex = 0;
+    next.seatEntryIndex = path.seatEntryIndex;
+    next.pos = { x: path[0].x, y: path[0].y };
+    next.state = 'walking';
+    activePassengers.push(next);
+    return true;
+  }
+  return false;
+}
+
 function tickSimulation(passengers, activePassengers){
   currentTick++;
-  if(currentTick % 1 === 0){
-    const next = passengers.find(p=>p.state==='waiting');
-    if(next && layoutData){
-      const path = buildPassengerPath(next.seat);
-      if(path && canEnterPath(path, activePassengers)){
-        next.path = path;
-        next.pathIndex = 0;
-        next.seatEntryIndex = path.seatEntryIndex;
-        next.pos = { x: path[0].x, y: path[0].y };
-        next.state = 'walking';
-        activePassengers.push(next);
-      }
-    }
+  const subSteps = stepsPerTick();
+  let blockedThisTick = false;
+
+  for(let step = 0; step < subSteps; step++){
+    admitNextPassenger(passengers, activePassengers);
+    const result = updatePassengers(activePassengers, step === 0);
+    blockedThisTick = result.blocked || blockedThisTick;
   }
-  updatePassengers(activePassengers);
-  const isBottleneck = activePassengers.some(p => p.blocked === true);
+  const isBottleneck = blockedThisTick;
   if(isBottleneck && !bottleneckActive){
     bottleneckActive = true;
   }
@@ -381,9 +397,13 @@ function updateMovingLayer(passengers, activePassengers){
     let el = movingElems[id];
     if(!el){
       el = document.createElement('div');
-      el.className='walker'; el.id=id; layer.appendChild(el); movingElems[id]=el;
+      el.className='walker';
+      el.id=id;
+      el.style.transform = `translate3d(${p.pos.x}px, ${p.pos.y}px, 0)`;
+      layer.appendChild(el);
+      movingElems[id]=el;
     }
-    el.style.transform = `translate(${Math.round(p.pos.x)}px, ${Math.round(p.pos.y)}px)`;
+    el.style.transform = `translate3d(${p.pos.x}px, ${p.pos.y}px, 0)`;
     el.style.opacity = p.state === 'sitting' ? '0.4' : '1';
     if(p.blocked) el.classList.add('blocked');
     else el.classList.remove('blocked');
@@ -401,6 +421,15 @@ let lastFrameTime = 0;
 let accumulator = 0;
 
 function startSimulation(mode='random'){
+  if(animationId){
+    cancelAnimationFrame(animationId);
+    animationId = null;
+  }
+
+  const oldLayer = document.getElementById('movingLayer');
+  if(oldLayer) oldLayer.innerHTML = '';
+  movingElems = {};
+
   resetSeatMap(); currentTick=0; bottleneckCount=0; bottleneckTime=0; bottleneckActive=false; globalActive=[];
   displayTime=0; displayCount=0; displayBottleneck=0;
   buildSeatGrid();
@@ -410,7 +439,6 @@ function startSimulation(mode='random'){
   globalPassengers = createPassengers(seats);
   render(globalPassengers, globalActive);
 
-  if(animationId) cancelAnimationFrame(animationId);
   lastFrameTime = performance.now();
   accumulator = 0;
   animationId = requestAnimationFrame(loop);
