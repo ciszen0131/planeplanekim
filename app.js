@@ -59,7 +59,6 @@ function updatePassengers(activePassengers){
       if(p.timer <= 0){
         p.state = 'seated';
         seatMap[p.seat] = true;
-        occupied.delete(`${Math.round(p.pos.x)}|${Math.round(p.pos.y)}`);
       }
       continue;
     }
