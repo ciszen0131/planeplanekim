@@ -3,12 +3,15 @@ const SEAT_ROWS = ['A','B','C','D','E','F','G','H','I'];
 const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
-const BASE_SIT_TIME = 4;
+const BASE_SIT_TIME = 2;
+const BLOCKING_SIT_TIME = 2.5;
 const TICK_MS = 100;
 const TICK_SECONDS = 0.2;
 const WALK_SPEED = 80;
-const MIN_SPACING = 40;
+const MIN_SPACING = 20;
+const ENTRY_SPACING = 20;
 const GRID_STEP = 32;
+const PATH_STEP = 8;
 const WALKER_SIZE = 18;
 
 const BLOCKING = {A:['B','C'],B:['C'],C:[],D:[],E:[],F:[],G:[],H:['G'],I:['G','H']};
@@ -21,7 +24,7 @@ function resetSeatMap(){
 
 function extraSeatTime(seat){
   const row = seat[0]; const col = parseInt(seat.slice(1)); let extra=0;
-  for(const b of (BLOCKING[row]||[])) if(seatMap[`${b}${col}`]) extra+=5;
+  for(const b of (BLOCKING[row]||[])) if(seatMap[`${b}${col}`]) extra+=BLOCKING_SIT_TIME;
   return extra;
 }
 
@@ -42,23 +45,60 @@ let speedFactor = 1.0;
 let densityFactor = 1.0;
 let layoutData = null;
 
-function updatePassengers(activePassengers){
-  const occupied = [];
-  for(const p of activePassengers){
-    p.blocked = false;
-    if(p.state === 'walking' || p.state === 'sitting'){
-      occupied.push(p);
+function isInSeatAisle(pos){
+  if(!layoutData || !pos) return false;
+  const insidePlane = pos.x > layoutData.entryX + WALKER_SIZE;
+  const inTopAisle = Math.abs(pos.y - layoutData.aisleTopY) < WALKER_SIZE;
+  const inBottomAisle = Math.abs(pos.y - layoutData.aisleBottomY) < WALKER_SIZE;
+  return insidePlane && (inTopAisle || inBottomAisle);
+}
+
+function passengerBlocksMove(other, next){
+  if(!other.pos || (other.state !== 'walking' && other.state !== 'sitting')) return false;
+  const distance = Math.hypot(other.pos.x - next.x, other.pos.y - next.y);
+  return distance < MIN_SPACING;
+}
+
+function keepSpacingBehind(p, blocker){
+  if(!p.pos || !blocker || !blocker.pos || !p.path) return;
+  let bestIndex = p.pathIndex;
+  for(let i = p.pathIndex; i >= 0; i--){
+    const point = p.path[i];
+    if(Math.hypot(point.x - blocker.pos.x, point.y - blocker.pos.y) >= MIN_SPACING){
+      bestIndex = i;
+      break;
     }
   }
+  p.pathIndex = bestIndex;
+  p.pos.x = p.path[bestIndex].x;
+  p.pos.y = p.path[bestIndex].y;
+}
 
+function markPassengerSeated(p){
+  p.state = 'seated';
+  p.blocked = false;
+  p.pos = null;
+  p.path = null;
+  p.pathIndex = 0;
+  seatMap[p.seat] = true;
+}
+
+function updatePassengers(activePassengers){
   for(const p of activePassengers){
+    p.blocked = false;
+  }
+
+  const movingOrder = activePassengers
+    .slice()
+    .sort((a, b) => (b.pathIndex || 0) - (a.pathIndex || 0));
+
+  for(const p of movingOrder){
     if(p.state === 'seated') continue;
 
     if(p.state === 'sitting'){
       p.timer--;
       if(p.timer <= 0){
-        p.state = 'seated';
-        seatMap[p.seat] = true;
+        markPassengerSeated(p);
       }
       continue;
     }
@@ -70,31 +110,45 @@ function updatePassengers(activePassengers){
         continue;
       }
 
-      const next = p.path[p.pathIndex + 1];
+      const stepsPerTick = layoutData ? Math.max(1, Math.round(layoutData.stepX / PATH_STEP)) : 1;
 
-      const blocker = occupied.find(other => {
-        if(other === p || !other.pos) return false;
-        const sameAisle = Math.abs(other.pos.y - next.y) < WALKER_SIZE;
-        const ahead = other.pos.x > p.pos.x;
-        const tooClose = Math.abs(other.pos.x - next.x) < MIN_SPACING;
-        return sameAisle && ahead && tooClose;
-      });
+      for(let step = 0; step < stepsPerTick; step++){
+        if(!p.path || p.pathIndex >= p.path.length - 1) break;
+        const next = p.path[p.pathIndex + 1];
+        const blocker = activePassengers.find(other => other !== p && passengerBlocksMove(other, next));
 
-      if(blocker){
-        p.blocked = true;
-        continue;
-      }
+        if(blocker){
+          keepSpacingBehind(p, blocker);
+          p.blocked = isInSeatAisle(p.pos) || isInSeatAisle(next);
+          break;
+        }
 
-      p.pos.x = next.x;
-      p.pos.y = next.y;
-      p.pathIndex++;
+        p.pos.x = next.x;
+        p.pos.y = next.y;
+        p.pathIndex++;
 
-      if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
-        p.state = 'sitting';
-        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+        if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
+          p.state = 'sitting';
+          p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+          break;
+        }
       }
     }
   }
+
+  for(let i = activePassengers.length - 1; i >= 0; i--){
+    if(activePassengers[i].state === 'seated'){
+      activePassengers.splice(i, 1);
+    }
+  }
+}
+
+function canEnterPath(path, activePassengers){
+  const entry = path[0];
+  return !activePassengers.some(p => {
+    if(!p.pos || (p.state !== 'walking' && p.state !== 'sitting')) return false;
+    return Math.hypot(p.pos.x - entry.x, p.pos.y - entry.y) < ENTRY_SPACING;
+  });
 }
 
 function tickSimulation(passengers, activePassengers){
@@ -103,7 +157,7 @@ function tickSimulation(passengers, activePassengers){
     const next = passengers.find(p=>p.state==='waiting');
     if(next && layoutData){
       const path = buildPassengerPath(next.seat);
-      if(path){
+      if(path && canEnterPath(path, activePassengers)){
         next.path = path;
         next.pathIndex = 0;
         next.seatEntryIndex = path.seatEntryIndex;
@@ -240,7 +294,8 @@ function buildPassengerPath(seatId){
     const dy = to.y - from.y;
     const dist = Math.hypot(dx, dy);
     if(dist < 1) return;
-    const step = Math.abs(dx) > Math.abs(dy) ? layoutData.stepX : layoutData.stepY;
+    const gridStep = Math.abs(dx) > Math.abs(dy) ? layoutData.stepX : layoutData.stepY;
+    const step = Math.min(PATH_STEP, gridStep);
     const steps = Math.max(1, Math.round(dist / step));
     for(let i = 1; i <= steps; i++){
       waypoints.push({ x: from.x + (dx * i) / steps, y: from.y + (dy * i) / steps });
