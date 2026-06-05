@@ -77,13 +77,13 @@ body{
 #pause{background:rgba(245,208,66);color:#1a1a1a;border-color:rgba(245,208,66)}
 #pause:hover{background:rgba(245,208,66,0.35)}
 
-.container{padding:100jepx 60px 36px}
+.container{padding:0 60px 36px}
 
 .stats{
   display:flex;
   gap:20px;
   justify-content:center;
-  margin-bottom:50px;
+  margin-bottom:24px;
   margin-top:36px;
 }
 
@@ -107,7 +107,12 @@ body{
 .progress{height:8px;background:#141418;border-radius:999px;margin-top:12px;overflow:hidden}
 #progressBar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#4a4dff)}
 
-.controls{display:flex;justify-content:center;gap:18px;margin:6px 0 24px}
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:18px;
+  margin:0 0 28px;
+}
 
 .control{
   display:flex;
@@ -214,8 +219,19 @@ body{
 }
 
 .moving-layer{position:absolute;inset:0;pointer-events:none}
-.walker{position:absolute;width:18px;height:18px;border-radius:50%;background:var(--accent);transform:translate3d(0,0,0);transition:transform 90ms linear,opacity 120ms ease,background-color 120ms ease;will-change:transform,opacity}
+.walker{
+  position:absolute;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  background:var(--accent);
+  transform:translate3d(0,0,0);
+  transition:transform 90ms linear,opacity 120ms ease,background-color 120ms ease;
+  will-change:transform,opacity;
+}
 .walker.blocked{background:#ff4d4d}
+.walker.luggage{box-shadow:0 0 0 2px #f5d042}
+.walker.blocked.luggage{box-shadow:0 0 0 2px #f5d042}
 .walker.vip{background:var(--accent)}
 
 @keyframes fade-in{
@@ -227,4 +243,3 @@ body{
   from{opacity:0;transform:translateY(10px)}
   to{opacity:1;transform:translateY(0)}
 }
-

@@ -3,20 +3,22 @@ const SEAT_ROWS = ['A','B','C','D','E','F','G','H','I'];
 const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
-const BASE_SIT_TIME = 2;
-const INNER_SEAT_STEP_TIME = 0.75;
-const PASS_SEATED_TIME = 3;
+const BASE_SIT_TIME = 4;
+const INNER_SEAT_STEP_TIME = 1.5;
+const PASS_SEATED_TIME = 6;
 const LUGGAGE_CHANCE = 0.35;
-const LUGGAGE_MIN_TIME = 1;
-const LUGGAGE_MAX_TIME = 4;
+const LUGGAGE_MIN_TIME = 2;
+const LUGGAGE_MAX_TIME = 8;
 const TICK_MS = 100;
 const TICK_SECONDS = 0.2;
 const WALK_SPEED = 48;
 const MIN_SPACING = 20;
-const ENTRY_SPACING = 20; 
+const ENTRY_SPACING = 20;
 const GRID_STEP = 32;
 const PATH_STEP = 8;
 const WALKER_SIZE = 18;
+
+let tickInterval = TICK_MS; // 속도 슬라이더로 조정됨
 
 let seatMap = {};
 function resetSeatMap(){
@@ -289,13 +291,24 @@ function efficientOrder(){
   }
   return seats;
 }
+
 const seatsContainer = document.getElementById('seats');
 const timeEl = document.getElementById('time');
 const countEl = document.getElementById('count');
 const progressBar = document.getElementById('progressBar');
 const bottleneckEl = document.getElementById('bottleneck');
-
 const passengerSide = document.getElementById('passengerSide');
+
+// 속도 슬라이더
+const speedSlider = document.getElementById('speedSlider');
+const speedValue  = document.getElementById('speedValue');
+
+speedSlider.addEventListener('input', () => {
+  const v = parseFloat(speedSlider.value);
+  speedValue.textContent = v.toFixed(1) + '×';
+  tickInterval = Math.round(TICK_MS / v);
+});
+
 let selectedMode = 'random';
 
 const SEAT_WIDTH = 32;
@@ -452,24 +465,6 @@ function updateMovingLayer(passengers, activePassengers){
   const layer = document.getElementById('movingLayer');
   if(!layer) return;
 
-  const seatingRect = seatingCard.getBoundingClientRect();
-  const refRow = seatsContainer.querySelector('.seat-row[data-row="A"]');
-  const refWrap = refRow ? refRow.querySelector('.seat-row-cells') : null;
-  const baseLeft = refWrap ? refWrap.getBoundingClientRect().left - seatingRect.left : 0;
-
-  function getAisleY(aisle){
-    if(aisle === 'TOP'){
-      const r1 = seatsContainer.querySelector('.seat-row[data-row="C"]');
-      const r2 = seatsContainer.querySelector('.seat-row[data-row="D"]');
-      if(r1 && r2) return (r1.getBoundingClientRect().bottom + r2.getBoundingClientRect().top) / 2 - seatingRect.top - 9;
-    } else {
-      const r1 = seatsContainer.querySelector('.seat-row[data-row="F"]');
-      const r2 = seatsContainer.querySelector('.seat-row[data-row="G"]');
-      if(r1 && r2) return (r1.getBoundingClientRect().bottom + r2.getBoundingClientRect().top) / 2 - seatingRect.top - 9;
-    }
-    return 0;
-  }
-
   const seen = new Set();
 
   for(const p of activePassengers){
@@ -487,8 +482,12 @@ function updateMovingLayer(passengers, activePassengers){
     }
     el.style.transform = `translate3d(${p.pos.x}px, ${p.pos.y}px, 0)`;
     el.style.opacity = p.state === 'sitting' ? '0.4' : '1';
+
+    // 수화물 노란 테두리
     if(p.hasLuggage) el.classList.add('luggage');
     else el.classList.remove('luggage');
+
+    // 막힘 표시
     if(p.blocked) el.classList.add('blocked');
     else el.classList.remove('blocked');
   }
@@ -534,9 +533,10 @@ function loop(now){
   const delta = now - lastFrameTime;
   lastFrameTime = now;
   accumulator += delta;
-  if(accumulator >= TICK_MS){
+
+  if(accumulator >= tickInterval){
     tickSimulation(globalPassengers, globalActive);
-    accumulator = 0;
+    accumulator -= tickInterval; // 0 대신 빼기로 교체 — 정밀도 유지
     render(globalPassengers, globalActive);
     if(allSeated(globalPassengers)){
       const total = globalPassengers.length;
@@ -554,10 +554,6 @@ document.querySelectorAll('.tab').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    const txt = btn.textContent.trim();
-    if(txt === '무작위') selectedMode = 'random';
-    else if(txt === '뒤에서') selectedMode = 'sorted';
-    else selectedMode = 'column';
   });
 });
 
@@ -570,8 +566,6 @@ document.querySelectorAll('.tab').forEach((btn, index)=>{
 
 document.getElementById('start').addEventListener('click', ()=> startSimulation(selectedMode));
 document.getElementById('pause').addEventListener('click', pauseSimulation);
-
-
 
 buildSeatGrid();
 updateLayout();

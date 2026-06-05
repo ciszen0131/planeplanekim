@@ -20,7 +20,7 @@
       <button id="pause">일시중지</button>
     </div>
   </header>
-  
+
   <main class="container">
     <section class="stats">
       <div class="card">
@@ -37,9 +37,17 @@
         <div class="value" id="bottleneck">0</div>
       </div>
     </section>
+
+    <section class="controls">
+      <div class="control">
+        <span class="control-label">속도</span>
+        <input type="range" id="speedSlider" min="0.5" max="5" step="0.5" value="1">
+        <span class="control-value" id="speedValue">1.0×</span>
+      </div>
+    </section>
+
     <section class="seating-area">
       <aside class="passenger-side" id="passengerSide"></aside>
-
       <div class="seating-card">
         <div class="seats" id="seats"></div>
       </div>
