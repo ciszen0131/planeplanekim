@@ -4,17 +4,19 @@ const COLUMN_SEAT_ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'H', 'G'];
 
 const ENTRY_DELAY = 2;
 const BASE_SIT_TIME = 2;
-const BLOCKING_SIT_TIME = 2.5;
+const INNER_SEAT_STEP_TIME = 0.75;
+const PASS_SEATED_TIME = 3;
+const LUGGAGE_CHANCE = 0.35;
+const LUGGAGE_MIN_TIME = 1;
+const LUGGAGE_MAX_TIME = 4;
 const TICK_MS = 100;
 const TICK_SECONDS = 0.2;
-const WALK_SPEED = 80;
+const WALK_SPEED = 48;
 const MIN_SPACING = 20;
-const ENTRY_SPACING = 20;
+const ENTRY_SPACING = 20; 
 const GRID_STEP = 32;
 const PATH_STEP = 8;
 const WALKER_SIZE = 18;
-
-const BLOCKING = {A:['B','C'],B:['C'],C:[],D:[],E:[],F:[],G:[],H:['G'],I:['G','H']};
 
 let seatMap = {};
 function resetSeatMap(){
@@ -22,16 +24,30 @@ function resetSeatMap(){
   for(let c=1;c<=ROWS;c++) for(const r of SEAT_ROWS) seatMap[`${r}${c}`]=false;
 }
 
-function extraSeatTime(seat){
-  const row = seat[0]; const col = parseInt(seat.slice(1)); let extra=0;
-  for(const b of (BLOCKING[row]||[])) if(seatMap[`${b}${col}`]) extra+=BLOCKING_SIT_TIME;
-  return extra;
-}
-
 function getAisle(seatRow){ return ['A','B','C','D'].includes(seatRow)?'TOP':'BOT'; }
 
 function createPassengers(seats){
-  return seats.map(s=>({seat:s,seatRow:s[0],col:parseInt(s.slice(1)),aisle:getAisle(s[0]),currentCol:0,state:'waiting',timer:0,moveCooldown:0,vip:false}));
+  return seats.map(item=>{
+    const s = typeof item === 'string' ? item : item.seat;
+    const aisle = typeof item === 'string' ? getAisle(s[0]) : (item.aisle || getAisle(s[0]));
+    const hasLuggage = Math.random() < LUGGAGE_CHANCE;
+    const luggageDelay = hasLuggage
+      ? LUGGAGE_MIN_TIME + Math.floor(Math.random() * (LUGGAGE_MAX_TIME - LUGGAGE_MIN_TIME + 1))
+      : 0;
+    return {
+      seat:s,
+      seatRow:s[0],
+      col:parseInt(s.slice(1)),
+      aisle,
+      currentCol:0,
+      state:'waiting',
+      timer:0,
+      moveCooldown:0,
+      vip:false,
+      hasLuggage,
+      luggageDelay,
+    };
+  });
 }
 
 let bottleneckCount = 0;
@@ -83,8 +99,49 @@ function markPassengerSeated(p){
   seatMap[p.seat] = true;
 }
 
+function innerSeatDepth(p){
+  const topDepth = {C:0, D:0, B:1, E:1, A:2, F:2};
+  const bottomDepth = {F:0, G:0, E:1, H:1, D:2, I:2};
+  const row = p.seatRow;
+  const depthMap = p.aisle === 'TOP' ? topDepth : bottomDepth;
+  return depthMap[row] || 0;
+}
+
+function seatedRowsToPass(p){
+  const topBlockers = {
+    A:['C','B'],
+    B:['C'],
+    C:[],
+    D:[],
+    E:['D'],
+    F:['D','E'],
+  };
+  const bottomBlockers = {
+    D:['F','E'],
+    E:['F'],
+    F:[],
+    G:[],
+    H:['G'],
+    I:['G','H'],
+  };
+  const blockers = p.aisle === 'TOP' ? topBlockers : bottomBlockers;
+  return blockers[p.seatRow] || [];
+}
+
+function passSeatedTime(p){
+  let delay = 0;
+  for(const row of seatedRowsToPass(p)){
+    if(seatMap[`${row}${p.col}`]) delay += PASS_SEATED_TIME;
+  }
+  return delay;
+}
+
+function seatDelayForPassenger(p){
+  return BASE_SIT_TIME + (innerSeatDepth(p) * INNER_SEAT_STEP_TIME) + passSeatedTime(p) + p.luggageDelay;
+}
+
 function stepsPerTick(){
-  return layoutData ? Math.max(1, Math.round(layoutData.stepX / PATH_STEP)) : 1;
+  return Math.max(1, Math.round((WALK_SPEED * TICK_SECONDS) / PATH_STEP));
 }
 
 function updatePassengers(activePassengers, tickTimers = true){
@@ -115,7 +172,7 @@ function updatePassengers(activePassengers, tickTimers = true){
     if(p.state === 'walking'){
       if(!p.path || p.pathIndex >= p.path.length - 1){
         p.state = 'sitting';
-        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+        p.timer = seatDelayForPassenger(p);
         continue;
       }
 
@@ -136,7 +193,7 @@ function updatePassengers(activePassengers, tickTimers = true){
 
       if(p.seatEntryIndex != null && p.pathIndex >= p.seatEntryIndex){
         p.state = 'sitting';
-        p.timer = BASE_SIT_TIME + extraSeatTime(p.seat);
+        p.timer = seatDelayForPassenger(p);
       }
     }
   }
@@ -161,7 +218,7 @@ function canEnterPath(path, activePassengers){
 function admitNextPassenger(passengers, activePassengers){
   const next = passengers.find(p=>p.state==='waiting');
   if(!next || !layoutData) return false;
-  const path = buildPassengerPath(next.seat);
+  const path = buildPassengerPath(next.seat, next.aisle);
   if(path && canEnterPath(path, activePassengers)){
     next.path = path;
     next.pathIndex = 0;
@@ -206,7 +263,32 @@ function randomOrder(){
 }
 function sortedOrder(){let seats=[]; for(let c=ROWS;c>=1;c--) for(const r of COLUMN_SEAT_ROWS) seats.push(`${r}${c}`); return seats}
 function columnOrder(){let seats=[]; for(const r of COLUMN_SEAT_ROWS) for(let c=ROWS;c>=1;c--) seats.push(`${r}${c}`); return seats}
+function efficientOrder(){
+  const seats = [];
+  const columns = [];
+  for(let c=ROWS;c>=1;c-=2) columns.push(c);
+  for(let c=ROWS-1;c>=1;c-=2) columns.push(c);
 
+  const waves = [
+    [['A'], ['I']],
+    [['B'], ['H']],
+    [['C'], ['G']],
+    [['E'], []],
+    [['D'], ['F']],
+  ];
+
+  for(const [topRows, bottomRows] of waves){
+    columns.forEach((col, colIndex)=>{
+      for(const row of topRows){
+        seats.push(row === 'E' ? { seat: `${row}${col}`, aisle: colIndex % 2 === 0 ? 'TOP' : 'BOT' } : `${row}${col}`);
+      }
+      for(const row of bottomRows){
+        seats.push(row === 'E' ? { seat: `${row}${col}`, aisle: 'BOT' } : `${row}${col}`);
+      }
+    });
+  }
+  return seats;
+}
 const seatsContainer = document.getElementById('seats');
 const timeEl = document.getElementById('time');
 const countEl = document.getElementById('count');
@@ -299,11 +381,11 @@ function updateLayout(){
   layoutData = { seatingRect, seatCenters, aisleTopY, aisleBottomY, entryX, entryY, stepX, stepY };
 }
 
-function buildPassengerPath(seatId){
+function buildPassengerPath(seatId, aisleOverride){
   if(!layoutData || !layoutData.seatCenters[seatId]) return null;
   const seatCenter = layoutData.seatCenters[seatId];
   const row = seatId[0];
-  const isTop = ['A','B','C','D'].includes(row);
+  const isTop = aisleOverride ? aisleOverride === 'TOP' : ['A','B','C','D'].includes(row);
   const waypoints = [];
   const addSegment = (from, to) => {
     const dx = to.x - from.x;
@@ -405,6 +487,8 @@ function updateMovingLayer(passengers, activePassengers){
     }
     el.style.transform = `translate3d(${p.pos.x}px, ${p.pos.y}px, 0)`;
     el.style.opacity = p.state === 'sitting' ? '0.4' : '1';
+    if(p.hasLuggage) el.classList.add('luggage');
+    else el.classList.remove('luggage');
     if(p.blocked) el.classList.add('blocked');
     else el.classList.remove('blocked');
   }
@@ -434,7 +518,7 @@ function startSimulation(mode='random'){
   displayTime=0; displayCount=0; displayBottleneck=0;
   buildSeatGrid();
   updateLayout();
-  const orderFn = {random:randomOrder, sorted:sortedOrder, column:columnOrder};
+  const orderFn = {random:randomOrder, sorted:sortedOrder, column:columnOrder, efficient:efficientOrder};
   const seats = (orderFn[mode]||randomOrder)();
   globalPassengers = createPassengers(seats);
   render(globalPassengers, globalActive);
@@ -474,6 +558,13 @@ document.querySelectorAll('.tab').forEach(btn=>{
     if(txt === '무작위') selectedMode = 'random';
     else if(txt === '뒤에서') selectedMode = 'sorted';
     else selectedMode = 'column';
+  });
+});
+
+const modes = ['random', 'sorted', 'column', 'efficient'];
+document.querySelectorAll('.tab').forEach((btn, index)=>{
+  btn.addEventListener('click', ()=>{
+    selectedMode = modes[index] || 'random';
   });
 });
 
